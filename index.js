@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config';
 
 
@@ -45,18 +45,45 @@ app.get('/users', async(req, res) => {
 });
 //service related APIS
 app.get('/services', async (req, res) => {
-  const cursor = services.find();
+  let query = { status: "Active" };
+  if (req.query.search) {
+    query.name = { $regex: req.query.search, $options: "i" };
+  }
+  if (req.query.category) {
+    query.category = { $regex: req.query.category, $options: "i" };
+  }
+  const cursor = services.find(query);
   const result = await cursor.toArray();
   res.send(result);
 })
+
+//details page er data dekhanor jnno
+
+app.get('/services/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await services.findOne(query);
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ error: "Invalid ID" });
+  }
+});
+
+
 
 app.post('/services', async (req, res) =>{
   const service = req.body;
   const result = await services.insertOne(service);
   res.send(result)
-
 })
 
+app.delete('/services/:id', async (req, res)=>{
+  const id = req.params.id;
+  const query = {_id: new ObjectId(id)};
+  const result = await services.deleteOne(query); 
+  res.send(result);
+})
 
 app.listen(port, () => {
   console.log(`SallonBook App is running ${port}`);
