@@ -85,6 +85,24 @@ app.delete('/services/:id', async (req, res)=>{
   res.send(result);
 })
 
+
+//appointments related api
+app.post('/appointments', async (req, res) => {
+  try {
+    const appointments = database.collection("appointments"); 
+
+    const appointment = req.body
+    appointment.createdAt = new Date()
+    const result = await appointments.insertOne(appointment)
+    res.status(201).send(result)
+  } catch (error) {
+    console.error("Failed to book appointment:", error)
+    res.status(500).send({ error: "Failed to book appointment" })
+  }
+})
+
+
+
 app.listen(port, () => {
   console.log(`SallonBook App is running ${port}`);
 });
