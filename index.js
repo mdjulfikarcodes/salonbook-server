@@ -101,6 +101,21 @@ app.post('/appointments', async (req, res) => {
   }
 })
 
+// get customer id
+app.get('/appointments', async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const query = customerId ? { customerId: customerId } : {}; 
+    const appointmentsCollection = database.collection("appointments"); 
+    const result = await appointmentsCollection.find(query).toArray();
+    
+    res.send(result);
+  } catch (error) {
+    console.error("Failed to fetch appointments:", error);
+    res.status(500).send({ error: "Failed to fetch appointments" });
+  }
+});
+
 
 
 app.listen(port, () => {
