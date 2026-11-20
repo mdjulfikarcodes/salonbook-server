@@ -108,11 +108,29 @@ app.get('/appointments', async (req, res) => {
     const query = customerId ? { customerId: customerId } : {}; 
     const appointmentsCollection = database.collection("appointments"); 
     const result = await appointmentsCollection.find(query).toArray();
-    
     res.send(result);
-  } catch (error) {
+  } 
+  catch (error) {
     console.error("Failed to fetch appointments:", error);
     res.status(500).send({ error: "Failed to fetch appointments" });
+  }
+});
+
+
+app.get('/appointments/count', async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    const filter = customerId ? { customerId } : {};
+    const collection = database.collection("appointments");
+
+    const total = await collection.countDocuments(filter);
+    const pending = await collection.countDocuments({ ...filter, status: "Pending" });
+    const confirmed = await collection.countDocuments({ ...filter, status: "Confirmed" });
+    const cancelled = await collection.countDocuments({ ...filter, status: "Cancelled" });
+
+    res.send({ total, pending, confirmed, cancelled });
+  } catch (error) {
+    res.status(500).send({ error: "Failed to count" });
   }
 });
 
