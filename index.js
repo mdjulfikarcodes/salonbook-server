@@ -184,6 +184,49 @@ app.post('/payments/payments-verify', async (req, res) => {
 });
 
 
+
+// API for admin to view all appointments
+app.get('/admin/appointments', async (req, res) => {
+  try {
+    const appointments = database.collection("appointments");
+
+    const result = await appointments.find().sort({ createdAt: -1 }).toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ error: "Failed to fetch all appointments" });
+  }
+});
+
+
+// API for admins to update status (Confirm or Cancel)
+app.patch('/admin/appointments/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status } = req.body;
+
+    // ভেতরে require করার দরকার নেই, কারণ উপরে করা আছে
+    const appointments = database.collection("appointments");
+    
+    const result = await appointments.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: status } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).send({ error: "Appointment not found or status unchanged" });
+    }
+
+    res.send({ success: true, message: "Status updated successfully", result });
+  } catch (error) {
+    console.error("Backend update error:", error); // ⬅️ এটি টার্মিনালে আসল এরর দেখাবে
+    res.status(500).send({ error: "Failed to update status" });
+  }
+});
+
+
+
+
+
 app.listen(port, () => {
   console.log(`SallonBook App is running ${port}`);
 });
