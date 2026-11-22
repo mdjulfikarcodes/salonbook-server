@@ -18,45 +18,42 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-
 const client = new MongoClient(process.env.MONGODB_URI);
 
-
+// Better Auth JWKS endpoint
 const JWKS = createRemoteJWKSet(
-  new URL('http://localhost:3000/api/auth/jwks') 
+  new URL(`${process.env.BETTER_AUTH_URL || 'http://localhost:3000'}/api/auth/jwks`) 
 );
 
-// টোকেন ভেরিফাই করার মিডলওয়্যার (jose দিয়ে ঠিক করা হলো)
+// 1. Token verification middleware (using jose)
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log("❌ No token provided");
+    console.log("No token provided");
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
 
   const token = authHeader.split(" ")[1];
 
   try {
-    // ⬇️ jose দিয়ে JWT টোকেন ভেরিফাই করা হচ্ছে
     const { payload } = await jwtVerify(token, JWKS);
-
-    // ⬇️ payload থেকে ডেটা বের করা হচ্ছে
+    
     req.user = {
       id: payload.id || payload.sub, 
       email: payload.email,
       role: payload.role || "customer"
     };
 
-    console.log("✅ Token Verified! User:", req.user.email);
+    console.log("Token Verified! User:", req.user.email);
     next();
   } catch (error) {
-    console.log("❌ Invalid JWT:", error.message);
+    console.log("Invalid JWT Error:", error.message);
     res.status(401).json({ error: "Unauthorized: Invalid token" });
   }
 };
 
-// অ্যাডমিন চেক করার মিডলওয়্যার
+// 2. Admin verification middleware
 const verifyAdmin = async (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ error: "Admin access required" });
@@ -77,7 +74,7 @@ export async function connectToMongoDB() {
 const connectedClient = await connectToMongoDB();
 
 const database = connectedClient.db("salonbookdb");
-const users = database.collection("users"); 
+const users = database.collection("users");
 const services = database.collection("services");
 const payments = database.collection("payments");
 
@@ -91,11 +88,26 @@ app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
   res.send(result);
 });
 
-// ⬇️ কাস্টমারদের জন্য পাবলিক সার্ভিস API (শুধু Active)
+// API to count total customers
+app.get('/users/count', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    // Count all users to check data
+    const totalCustomers = await users.countDocuments({}); 
+    
+    // Log to terminal to verify data retrieval
+    console.log("Total Users counted:", totalCustomers);
+
+    res.send({ totalCustomers });
+  } catch (error) {
+    res.status(500).send({ error: "Failed to count customers" });
+  }
+});
+
+// Public service API for customers (only Active)
 app.get('/services', async (req, res) => {
   let query = { status: "Active" };
   if (req.query.search) {
-    query.name = { $regex: req.query.search, $options: "i" };
+    query.serviceName = { $regex: req.query.search, $options: "i" }; 
   }
   if (req.query.category) {
     query.category = { $regex: req.query.category, $options: "i" };
@@ -105,7 +117,7 @@ app.get('/services', async (req, res) => {
   res.send(result);
 });
 
-// details page er data dekhanor jnno
+// Get service details by ID
 app.get('/services/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -117,7 +129,23 @@ app.get('/services/:id', async (req, res) => {
   }
 });
 
-// delete service (সুরক্ষিত)
+// 3. Create a new service (protected)
+app.post('/services', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const service = { ...req.body }; 
+    service.createdAt = new Date();
+    service.status = service.status || "Active";
+    
+    const result = await services.insertOne(service);
+    console.log("Service created:", service.serviceName);
+    res.status(201).send(result);
+  } catch (error) {
+    console.error("Failed to create service:", error.message);
+    res.status(500).send({ error: "Failed to create service" });
+  }
+});
+
+// Delete a service (protected)
 app.delete('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const query = { _id: new ObjectId(id) };
@@ -125,7 +153,7 @@ app.delete('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   res.send(result);
 });
 
-// Service active / Inactive api (সুরক্ষিত)
+// Update service (active/inactive) (protected)
 app.patch('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const id = req.params.id;
@@ -140,7 +168,7 @@ app.patch('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-//appointments related api (সুরক্ষিত)
+// Appointments related APIs (protected)
 app.post('/appointments', verifyToken, async (req, res) => {
   try {
     const appointments = database.collection("appointments");
@@ -154,15 +182,15 @@ app.post('/appointments', verifyToken, async (req, res) => {
     }
 
     const result = await appointments.insertOne(appointment);
-    console.log("✅ Appointment saved for:", req.user?.email);
+    console.log("Appointment saved for:", req.user?.email);
     res.status(201).send(result);
   } catch (error) {
-    console.error("❌ Failed to book:", error.message);
+    console.error("Failed to book:", error.message);
     res.status(500).send({ error: "Failed to book appointment" });
   }
 });
 
-// get customer id (সুরক্ষিত)
+// Get customer appointments (protected)
 app.get('/appointments', verifyToken, async (req, res) => {
   try {
     const { customerId } = req.query;
@@ -177,12 +205,11 @@ app.get('/appointments', verifyToken, async (req, res) => {
   }
 });
 
-// appointment calcel for customer (সুরক্ষিত)
+// Cancel appointment for customer (protected)
 app.patch('/appointments/:id', verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
     const { status } = req.body;
-    // ⬇️ ইউজার শুধু নিজের অ্যাপয়েন্টমেন্টই ক্যান্সেল করতে পারবে
     const query = { _id: new ObjectId(id), customerId: req.user.id };
     const updatedDoc = { $set: { status: status } };
     const result = await database.collection("appointments").updateOne(query, updatedDoc);
@@ -192,6 +219,7 @@ app.patch('/appointments/:id', verifyToken, async (req, res) => {
   }
 });
 
+// Get appointment counts
 app.get('/appointments/count', async (req, res) => {
   try {
     const { customerId } = req.query;
@@ -264,7 +292,7 @@ app.post('/payments/payments-verify', async (req, res) => {
   }
 });
 
-// Admin Transactions API (সুরক্ষিত)
+// Admin Transactions API (protected)
 app.get('/admin/transactions', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const payments = database.collection("payments");
@@ -275,7 +303,7 @@ app.get('/admin/transactions', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-// API for admin to view all appointments (সুরক্ষিত)
+// API for admin to view all appointments (protected)
 app.get('/admin/appointments', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const appointments = database.collection("appointments");
@@ -286,7 +314,7 @@ app.get('/admin/appointments', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-// API for admins to update status (Confirm or Cancel) (সুরক্ষিত)
+// API for admins to update appointment status (Confirm or Cancel) (protected)
 app.patch('/admin/appointments/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const id = req.params.id;
