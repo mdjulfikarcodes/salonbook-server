@@ -68,11 +68,7 @@ app.get('/services/:id', async (req, res) => {
   }
 });
 
-app.post('/services', async (req, res) => {
-  const service = req.body;
-  const result = await services.insertOne(service);
-  res.send(result)
-})
+
 
 //delete service
 app.delete('/services/:id', async (req, res) => {
@@ -166,6 +162,14 @@ app.get('/appointments/count', async (req, res) => {
 });
 
 // Payments Related APIs
+
+//payment count for admin dashboard
+app.get('/payments/count', async (req, res) => {
+  const count = await database.collection("payments").countDocuments({ status: "paid" });
+  res.send({ totalPaid: count });
+});
+
+//Payment Verify
 app.post('/payments/payments-verify', async (req, res) => {
   try {
     const { sessionId } = req.body;
@@ -178,16 +182,24 @@ app.post('/payments/payments-verify', async (req, res) => {
       if (existingPayment) {
         return res.send({ success: true, message: 'Already verified', result: existingPayment });
       }
+      
       const payment = {
         sessionId: session.id,
         status: session.status,
         payment_status: session.payment_status,
-        customer_email: session.customer_details?.email || session.customer_email,
+        // ⬇️ ইমেইল না পেলে "N/A" সেভ হবে, যাতে UI খালি না দেখায়
+        customer_email: session.customer_details?.email || session.customer_email || "N/A",
         userId: session.metadata?.userId,
-        appointmentId: session.metadata?.appointmentId, // Appointment ID সেভ করা হলো
+        appointmentId: session.metadata?.appointmentId,
         payment_intent: session.payment_intent,
+        
+        // ⬇️ Amount এবং Currency নিখুঁতভাবে সেভ হবে
+        amount: session.amount_total ? session.amount_total / 100 : 0,
+        currency: session.currency ? session.currency.toUpperCase() : "BDT",
+        
         createdAt: new Date()
       };
+      
       const result = await database.collection("payments").insertOne(payment);
 
      //user Update
@@ -198,7 +210,7 @@ app.post('/payments/payments-verify', async (req, res) => {
         );
       }
 
-      // appointnmet update
+      // appointment update
       if (session.metadata?.appointmentId) {
         await database.collection("appointments").updateOne(
           { _id: new ObjectId(session.metadata.appointmentId) },
@@ -209,7 +221,20 @@ app.post('/payments/payments-verify', async (req, res) => {
     }
     return res.status(400).send({ success: false, message: 'Payment verification failed' });
   } catch (error) {
+    console.error("Payment verify error:", error);
     return res.status(500).send({ success: false, message: 'Internal Server Error' });
+  }
+});
+
+// অ্যাডমিনের জন্য সব ট্রানজেকশন দেখার API
+app.get('/admin/transactions', async (req, res) => {
+  try {
+    const payments = database.collection("payments");
+    // নতুন পেমেন্ট আগে দেখাবে
+    const result = await payments.find().sort({ createdAt: -1 }).toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ error: "Failed to fetch transactions" });
   }
 });
 
