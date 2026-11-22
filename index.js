@@ -187,13 +187,13 @@ app.post('/payments/payments-verify', async (req, res) => {
         sessionId: session.id,
         status: session.status,
         payment_status: session.payment_status,
-        // ⬇️ ইমেইল না পেলে "N/A" সেভ হবে, যাতে UI খালি না দেখায়
+        
         customer_email: session.customer_details?.email || session.customer_email || "N/A",
         userId: session.metadata?.userId,
         appointmentId: session.metadata?.appointmentId,
         payment_intent: session.payment_intent,
         
-        // ⬇️ Amount এবং Currency নিখুঁতভাবে সেভ হবে
+        
         amount: session.amount_total ? session.amount_total / 100 : 0,
         currency: session.currency ? session.currency.toUpperCase() : "BDT",
         
@@ -226,11 +226,11 @@ app.post('/payments/payments-verify', async (req, res) => {
   }
 });
 
-// অ্যাডমিনের জন্য সব ট্রানজেকশন দেখার API
+// Admin Transactions API
 app.get('/admin/transactions', async (req, res) => {
   try {
     const payments = database.collection("payments");
-    // নতুন পেমেন্ট আগে দেখাবে
+   
     const result = await payments.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
   } catch (error) {
