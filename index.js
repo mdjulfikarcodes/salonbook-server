@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
@@ -13,7 +15,7 @@ const port = process.env.PORT || 5000;
 // Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: ['http://localhost:3000', 'https://salonbook-client-weld-ten.vercel.app'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
