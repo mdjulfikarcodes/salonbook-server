@@ -11,7 +11,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cors({
   origin: 'http://localhost:3000',
   credentials: true,
@@ -22,13 +22,13 @@ const client = new MongoClient(process.env.MONGODB_URI);
 
 // Better Auth JWKS endpoint
 const JWKS = createRemoteJWKSet(
-  new URL(`${process.env.BETTER_AUTH_URL || 'http://localhost:3000'}/api/auth/jwks`) 
+  new URL(`${process.env.BETTER_AUTH_URL || 'http://localhost:3000'}/api/auth/jwks`)
 );
 
 // 1. Token verification middleware (using jose)
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     console.log("No token provided");
     return res.status(401).json({ error: "Unauthorized: No token provided" });
@@ -38,9 +38,9 @@ const verifyToken = async (req, res, next) => {
 
   try {
     const { payload } = await jwtVerify(token, JWKS);
-    
+
     req.user = {
-      id: payload.id || payload.sub, 
+      id: payload.id || payload.sub,
       email: payload.email,
       role: payload.role || "customer"
     };
@@ -74,7 +74,7 @@ export async function connectToMongoDB() {
 const connectedClient = await connectToMongoDB();
 
 const database = connectedClient.db("salonbookdb");
-const users = database.collection("users");
+const users = database.collection("user");
 const services = database.collection("services");
 const payments = database.collection("payments");
 
@@ -91,10 +91,9 @@ app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
 // API to count total customers
 app.get('/users/count', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    // Count all users to check data
-    const totalCustomers = await users.countDocuments({}); 
-    
-    // Log to terminal to verify data retrieval
+  
+    const totalCustomers = await users.countDocuments({});
+
     console.log("Total Users counted:", totalCustomers);
 
     res.send({ totalCustomers });
@@ -103,11 +102,62 @@ app.get('/users/count', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+// ImgBB
+app.post('/upload', async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+    const apiKey = process.env.IMGBB_API_KEY;
+
+    if (!apiKey) {
+      return res.status(500).json({ success: false, error: "IMGBB_API_KEY missing in .env" });
+    }
+
+    // ImgBB-তে ছবি পাঠানোর সঠিক ফরম্যাট
+    const formData = new URLSearchParams();
+    formData.append("image", imageBase64);
+
+    const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      console.log("Image uploaded successfully");
+      res.send(data);
+    } else {
+      console.log("ImgBB Error:", data.error?.message);
+      res.status(400).json({ success: false, error: data.error?.message });
+    }
+  } catch (error) {
+    console.error("Server Upload Error:", error.message);
+    res.status(500).json({ success: false, error: "Internal Server Error" });
+  }
+});
+
+
+// 3. Create a new service (protected)
+app.post('/services', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const service = { ...req.body };
+    service.createdAt = new Date();
+    service.status = service.status || "Active";
+
+    const result = await services.insertOne(service);
+    console.log("Service created:", service.serviceName);
+    res.status(201).send(result);
+  } catch (error) {
+    console.error("Failed to create service:", error.message);
+    res.status(500).send({ error: "Failed to create service" });
+  }
+});
+
 // Public service API for customers (only Active)
 app.get('/services', async (req, res) => {
   let query = { status: "Active" };
   if (req.query.search) {
-    query.serviceName = { $regex: req.query.search, $options: "i" }; 
+    query.serviceName = { $regex: req.query.search, $options: "i" };
   }
   if (req.query.category) {
     query.category = { $regex: req.query.category, $options: "i" };
@@ -129,22 +179,6 @@ app.get('/services/:id', async (req, res) => {
   }
 });
 
-// 3. Create a new service (protected)
-app.post('/services', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const service = { ...req.body }; 
-    service.createdAt = new Date();
-    service.status = service.status || "Active";
-    
-    const result = await services.insertOne(service);
-    console.log("Service created:", service.serviceName);
-    res.status(201).send(result);
-  } catch (error) {
-    console.error("Failed to create service:", error.message);
-    res.status(500).send({ error: "Failed to create service" });
-  }
-});
-
 // Delete a service (protected)
 app.delete('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   const id = req.params.id;
@@ -153,15 +187,17 @@ app.delete('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   res.send(result);
 });
 
-// Update service (active/inactive) (protected)
+
+// Update service status (protected)
 app.patch('/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const id = req.params.id;
-    const updatedData = req.body; 
+
     const result = await services.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updatedData }
+      { $set: req.body }
     );
+
     res.send(result);
   } catch (error) {
     res.status(500).send({ error: "Failed to update service" });
@@ -173,12 +209,12 @@ app.post('/appointments', verifyToken, async (req, res) => {
   try {
     const appointments = database.collection("appointments");
     const appointment = req.body;
-    
+
     appointment.createdAt = new Date();
     if (req.user && req.user.id) {
-        appointment.customerId = req.user.id;
+      appointment.customerId = req.user.id;
     } else {
-        return res.status(401).json({ error: "User not authenticated" });
+      return res.status(401).json({ error: "User not authenticated" });
     }
 
     const result = await appointments.insertOne(appointment);
@@ -254,7 +290,7 @@ app.post('/payments/payments-verify', async (req, res) => {
       if (existingPayment) {
         return res.send({ success: true, message: 'Already verified', result: existingPayment });
       }
-      
+
       const payment = {
         sessionId: session.id,
         status: session.status,
@@ -267,7 +303,7 @@ app.post('/payments/payments-verify', async (req, res) => {
         currency: session.currency ? session.currency.toUpperCase() : "BDT",
         createdAt: new Date()
       };
-      
+
       const result = await database.collection("payments").insertOne(payment);
 
       if (session.metadata?.userId) {
@@ -330,7 +366,7 @@ app.patch('/admin/appointments/:id', verifyToken, verifyAdmin, async (req, res) 
     }
     res.send({ success: true, message: "Status updated successfully", result });
   } catch (error) {
-    console.error("Backend update error:", error); 
+    console.error("Backend update error:", error);
     res.status(500).send({ error: "Failed to update status" });
   }
 });
@@ -338,3 +374,5 @@ app.patch('/admin/appointments/:id', verifyToken, verifyAdmin, async (req, res) 
 app.listen(port, () => {
   console.log(`SallonBook App is running ${port}`);
 });
+
+export default app;
