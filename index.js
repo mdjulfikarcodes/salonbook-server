@@ -15,7 +15,7 @@ const port = process.env.PORT || 5000;
 // Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://salonbook-client-weld-ten.vercel.app'],
+  origin: ['http://localhost:3000', 'https://salonbook-client-chi.vercel.app'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
